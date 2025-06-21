@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# cargo +nightly miri test other::debit_stack -- --nocapture
+# cargo +nightly miri test other::debit_stack_arr -- --nocapture
+cargo +nightly miri test other::debit_stack_slisce -- --nocapture
