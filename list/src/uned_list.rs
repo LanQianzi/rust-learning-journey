@@ -1,5 +1,5 @@
-use std::ptr::NonNull;
 use std::marker::PhantomData;
+use std::ptr::NonNull;
 pub struct EDList<T> {
     front: Link<T>,
     back: Link<T>,
@@ -12,7 +12,7 @@ type Link<T> = Option<NonNull<Node<T>>>;
 struct Node<T> {
     next: Link<T>,
     prev: Link<T>,
-    elem: T
+    elem: T,
 }
 
 impl<T> Node<T> {
@@ -21,7 +21,7 @@ impl<T> Node<T> {
             NonNull::new_unchecked(Box::into_raw(Box::new(Node {
                 next: None,
                 prev: None,
-                elem 
+                elem,
             })))
         }
     }
@@ -29,7 +29,12 @@ impl<T> Node<T> {
 
 impl<T> EDList<T> {
     pub fn new() -> Self {
-        Self { front: None, back: None, len: 0, _boo: PhantomData }
+        Self {
+            front: None,
+            back: None,
+            len: 0,
+            _boo: PhantomData,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -52,7 +57,7 @@ impl<T> EDList<T> {
 
     pub fn pop_front(&mut self) -> Option<T> {
         self.front.take().map(|front| {
-            let box_front =  unsafe { Box::from_raw(front.as_ptr()) };
+            let box_front = unsafe { Box::from_raw(front.as_ptr()) };
             self.front = box_front.next;
             let res = box_front.elem;
             if let Some(now) = self.front {
@@ -84,33 +89,25 @@ impl<T> EDList<T> {
 
 impl<T> Drop for EDList<T> {
     fn drop(&mut self) {
-        while let Some(_) = self.pop_front() { }
+        while let Some(_) = self.pop_front() {}
     }
 }
 
 impl<T> EDList<T> {
     pub fn front(&self) -> Option<&T> {
-        self.front.map(|node| unsafe {
-            &(*node.as_ptr()).elem
-        })
+        self.front.map(|node| unsafe { &(*node.as_ptr()).elem })
     }
 
     pub fn front_mut(&mut self) -> Option<&mut T> {
-        self.front.map(|node| unsafe {
-            &mut (*node.as_ptr()).elem
-        })
+        self.front.map(|node| unsafe { &mut (*node.as_ptr()).elem })
     }
 
     pub fn back(&self) -> Option<&T> {
-        self.back.map(|node| unsafe {
-            &(*node.as_ptr()).elem
-        })
+        self.back.map(|node| unsafe { &(*node.as_ptr()).elem })
     }
 
     pub fn back_mut(&mut self) -> Option<&mut T> {
-        self.back.map(|node| unsafe {
-            &mut (*node.as_ptr()).elem
-        })
+        self.back.map(|node| unsafe { &mut (*node.as_ptr()).elem })
     }
 }
 
@@ -123,7 +120,12 @@ pub struct Iter<'a, T> {
 
 impl<T> EDList<T> {
     pub fn iter(&self) -> Iter<T> {
-        Iter { front: self.front, back: self.back, len: self.len, _boo: PhantomData }
+        Iter {
+            front: self.front,
+            back: self.back,
+            len: self.len,
+            _boo: PhantomData,
+        }
     }
 }
 
@@ -141,7 +143,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.len <= 0 {
-            return None
+            return None;
         }
         self.front.map(|node| unsafe {
             self.len -= 1;
@@ -158,7 +160,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.len <= 0 {
-            return None
+            return None;
         }
 
         self.back.map(|node| unsafe {
@@ -167,7 +169,6 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
             &(*node.as_ptr()).elem
         })
     }
-
 }
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {
@@ -175,8 +176,111 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {
         self.len
     }
 }
-#[cfg(test)]
 
+pub struct IterMut<'a, T> {
+    front: Link<T>,
+    back: Link<T>,
+    len: usize,
+    _boo: PhantomData<&'a mut T>,
+}
+
+impl<T> EDList<T> {
+    pub fn mut_iter(&mut self) -> IterMut<T> {
+        IterMut {
+            front: self.front,
+            back: self.back,
+            len: self.len,
+            _boo: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut EDList<T> {
+    type IntoIter = IterMut<'a, T>;
+    type Item = &'a mut T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.mut_iter()
+    }
+}
+
+impl<'a, T> Iterator for IterMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len <= 0 {
+            return None;
+        }
+
+        self.front.take().map(|node| unsafe {
+            self.front = (*node.as_ptr()).next;
+            self.len += 1;
+            &mut (*node.as_ptr()).elem
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.len <= 0 {
+            return None;
+        }
+        self.back.take().map(|node| unsafe {
+            self.back = (*node.as_ptr()).prev;
+            self.len -= 1;
+            &mut (*node.as_ptr()).elem
+        })
+    }
+}
+
+pub struct IntoIter<T> {
+    list: EDList<T>,
+}
+
+impl<T> EDList<T> {
+    pub fn into_iter(self) -> IntoIter<T> {
+        IntoIter { list: self }
+    }
+}
+
+impl<T> IntoIterator for EDList<T> {
+    type IntoIter = IntoIter<T>;
+    type Item = T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_iter()
+    }
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.list.pop_front()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.list.len();
+        (len, Some(len))
+    }
+}
+
+impl<T> DoubleEndedIterator for IntoIter<T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.list.pop_back()
+    }
+}
+
+impl<T> ExactSizeIterator for IntoIter<T> {
+    fn len(&self) -> usize {
+        self.list.len()
+    }
+}
+
+#[cfg(test)]
 mod test {
     use super::EDList;
     #[test]
@@ -217,5 +321,32 @@ mod test {
         assert_eq!(list.len(), 0);
         assert_eq!(list.pop_front(), None);
         assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut list = EDList::new();
+        list.push_front(1.1);
+        list.push_front(2.1);
+        list.push_front(3.1);
+
+        for i in &list {
+            println!("{i}")
+        }
+        println!("=======================");
+
+        for mi in &mut list {
+            *mi += 1.0
+        }
+
+        for i in &list {
+            println!("{i}")
+        }
+        println!("=======================");
+
+        for into in list {
+            println!("into: {into}")
+        }
+        // let iter = list.iter();
     }
 }
