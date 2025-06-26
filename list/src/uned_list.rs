@@ -1,5 +1,11 @@
+use std::clone::Clone;
+use std::default::Default;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::iter::Extend;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
 pub struct EDList<T> {
     front: Link<T>,
     back: Link<T>,
@@ -13,6 +19,24 @@ struct Node<T> {
     next: Link<T>,
     prev: Link<T>,
     elem: T,
+}
+
+pub struct Iter<'a, T> {
+    front: Link<T>,
+    back: Link<T>,
+    len: usize,
+    _boo: PhantomData<&'a T>,
+}
+
+pub struct IterMut<'a, T> {
+    front: Link<T>,
+    back: Link<T>,
+    len: usize,
+    _boo: PhantomData<&'a mut T>,
+}
+
+pub struct IntoIter<T> {
+    list: EDList<T>,
 }
 
 impl<T> Node<T> {
@@ -53,6 +77,19 @@ impl<T> EDList<T> {
         }
         self.front = Some(new);
         self.len += 1;
+    }
+
+    pub fn push_back(&mut self, elem: T) {
+        let nb = Node::new(elem);
+        if let Some(ob) = self.back {
+            unsafe {
+                (*ob.as_ptr()).next = Some(nb);
+                (*nb.as_ptr()).prev = Some(ob);
+            }
+        } else {
+            self.front = Some(nb);
+        }
+        self.back = Some(nb);
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
@@ -111,11 +148,15 @@ impl<T> EDList<T> {
     }
 }
 
-pub struct Iter<'a, T> {
-    front: Link<T>,
-    back: Link<T>,
-    len: usize,
-    _boo: PhantomData<&'a T>,
+//Other features
+impl<T> EDList<T> {
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn clear(&mut self) {
+        while let Some(_) = self.pop_back() {}
+    }
 }
 
 impl<T> EDList<T> {
@@ -177,13 +218,6 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {
     }
 }
 
-pub struct IterMut<'a, T> {
-    front: Link<T>,
-    back: Link<T>,
-    len: usize,
-    _boo: PhantomData<&'a mut T>,
-}
-
 impl<T> EDList<T> {
     pub fn mut_iter(&mut self) -> IterMut<T> {
         IterMut {
@@ -237,10 +271,6 @@ impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
     }
 }
 
-pub struct IntoIter<T> {
-    list: EDList<T>,
-}
-
 impl<T> EDList<T> {
     pub fn into_iter(self) -> IntoIter<T> {
         IntoIter { list: self }
@@ -280,6 +310,76 @@ impl<T> ExactSizeIterator for IntoIter<T> {
     }
 }
 
+impl<T> Default for EDList<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Clone> Clone for EDList<T> {
+    fn clone(&self) -> Self {
+        let mut new = Self::new();
+        for iter in self {
+            new.push_back(iter.clone());
+        }
+        new
+    }
+}
+
+impl<T> Extend<T> for EDList<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        for i in iter {
+            self.push_back(i);
+        }
+    }
+}
+
+impl<T> FromIterator<T> for EDList<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut list = Self::new();
+        list.extend(iter);
+        list
+    }
+}
+
+impl<T: Debug> Debug for EDList<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self).finish()
+    }
+}
+
+impl<T: PartialEq> PartialEq for EDList<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other)
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.len() != other.len() && self.iter().ne(other)
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for EDList<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.iter().partial_cmp(other)
+    }
+}
+
+impl<T: Ord> Ord for EDList<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.iter().cmp(other)
+    }
+}
+
+impl<T: Hash> Hash for EDList<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.len().hash(state);
+        for item in self {
+            item.hash(state);
+        }
+    }
+}
+
+impl<T: Eq> Eq for EDList<T> {}
 #[cfg(test)]
 mod test {
     use super::EDList;
