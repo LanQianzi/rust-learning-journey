@@ -89,10 +89,14 @@ impl<T> EDList<T> {
         } else {
             self.front = Some(nb);
         }
+        self.len += 1;
         self.back = Some(nb);
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
+        if self.len <= 0 {
+            return None;
+        }
         self.front.take().map(|front| {
             let box_front = unsafe { Box::from_raw(front.as_ptr()) };
             self.front = box_front.next;
@@ -219,7 +223,7 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {
 }
 
 impl<T> EDList<T> {
-    pub fn mut_iter(&mut self) -> IterMut<T> {
+    pub fn iter_mut(&mut self) -> IterMut<T> {
         IterMut {
             front: self.front,
             back: self.back,
@@ -234,7 +238,7 @@ impl<'a, T> IntoIterator for &'a mut EDList<T> {
     type Item = &'a mut T;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.mut_iter()
+        self.iter_mut()
     }
 }
 
@@ -248,7 +252,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
         self.front.take().map(|node| unsafe {
             self.front = (*node.as_ptr()).next;
-            self.len += 1;
+            self.len -= 1;
             &mut (*node.as_ptr()).elem
         })
     }
@@ -354,7 +358,7 @@ impl<T: PartialEq> PartialEq for EDList<T> {
     }
 
     fn ne(&self, other: &Self) -> bool {
-        self.len() != other.len() && self.iter().ne(other)
+        self.len() != other.len() || self.iter().ne(other)
     }
 }
 
