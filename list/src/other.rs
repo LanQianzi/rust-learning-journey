@@ -75,12 +75,11 @@ fn debit_stack_slisce() {
         for i in 0..10 {
             *ptr2_all.add(i) += i;
         }
-        
     }
 
     for (i, elem_ref) in slice1_all.iter_mut().enumerate() {
         *elem_ref += i;
     }
-    
+
     println!("data: {data:?}");
 }

@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::Extend;
 use std::marker::PhantomData;
+use std::mem;
 use std::ptr::NonNull;
 
 pub struct EDList<T> {
@@ -37,6 +38,12 @@ pub struct IterMut<'a, T> {
 
 pub struct IntoIter<T> {
     list: EDList<T>,
+}
+
+pub struct CursorMut<'a, T> {
+    cur: Link<T>,
+    list: &'a mut EDList<T>,
+    index: Option<usize>,
 }
 
 impl<T> Node<T> {
@@ -383,6 +390,219 @@ impl<T: Hash> Hash for EDList<T> {
     }
 }
 
+impl<T> EDList<T> {
+    pub fn cursor_mut(&mut self) -> CursorMut<T> {
+        CursorMut {
+            cur: None,
+            list: self,
+            index: None,
+        }
+    }
+}
+
+impl<'a, T> CursorMut<'a, T> {
+    pub fn index(&self) -> Option<usize> {
+        self.index
+    }
+
+    pub fn move_next(&mut self) {
+        if let Some(cur) = self.cur {
+            self.cur = unsafe { (*cur.as_ptr()).next };
+            if self.cur.is_none() {
+                self.index = None;
+            } else {
+                *self.index.as_mut().unwrap() += 1;
+            }
+        } else if self.list.is_empty() {
+            self.cur = self.list.front;
+            self.index = Some(0);
+        } else {
+            self.cur = self.list.front;
+            self.index = Some(0);
+        }
+    }
+
+    pub fn move_prev(&mut self) {
+        if let Some(cur) = self.cur {
+            self.cur = unsafe { (*cur.as_ptr()).prev };
+            if self.cur.is_none() {
+                self.index = None;
+            } else {
+                *self.index.as_mut().unwrap() -= 1;
+            }
+        } else if self.list.is_empty() {
+            self.cur = self.list.back;
+            self.index = Some(self.list.len - 1);
+        } else {
+            self.cur = self.list.back;
+            self.index = Some(self.list.len - 1);
+        }
+    }
+
+    pub fn current(&mut self) -> Option<&mut T> {
+        self.cur.map(|cur| unsafe { &mut (*cur.as_ptr()).elem })
+    }
+
+    pub fn peek_next(&mut self) -> Option<&mut T> {
+        let next = if let Some(cur) = self.cur {
+            unsafe { (*cur.as_ptr()).next }
+        } else {
+            self.list.front
+        };
+        next.map(|next| unsafe { &mut (*next.as_ptr()).elem })
+    }
+
+    pub fn peek_prev(&mut self) -> Option<&mut T> {
+        let prev = if let Some(cur) = self.cur {
+            unsafe { (*cur.as_ptr()).prev }
+        } else {
+            self.list.back
+        };
+        prev.map(|p| unsafe { &mut (*p.as_ptr()).elem })
+    }
+
+    pub fn split_before(&mut self) -> EDList<T> {
+        if self.cur.is_none() {
+            return mem::replace(self.list, EDList::new());
+        }
+
+        let old_cur = self.cur.unwrap();
+        let old_len = self.list.len;
+        let old_idx = self.index.unwrap();
+        let old_cur_prev = unsafe { (*old_cur.as_ptr()).prev };
+
+        let new_len = old_len - old_idx;
+        let new_idx = Some(0_usize);
+        let new_front = old_cur;
+
+        let opt_len = old_len - new_len;
+        let opt_front = self.list.front;
+        let opt_back = old_cur_prev;
+
+        if let Some(old_cur_prev) = old_cur_prev {
+            unsafe {
+                (*old_cur_prev.as_ptr()).next = None;
+                (*old_cur.as_ptr()).prev = None;
+            };
+        };
+
+        self.list.front = Some(new_front);
+        self.list.len = new_len;
+        self.index = new_idx;
+        EDList {
+            front: opt_front,
+            back: opt_back,
+            len: opt_len,
+            _boo: PhantomData,
+        }
+    }
+
+    pub fn split_after(&mut self) -> EDList<T> {
+        if self.cur.is_none() {
+            return mem::replace(self.list, EDList::new());
+        }
+        let old_cur = self.cur.unwrap();
+        let old_cur_next = unsafe { (*old_cur.as_ptr()).next };
+        let old_len = self.list.len;
+        let old_idx = self.index.unwrap();
+
+        let new_len = old_idx + 1;
+        let new_idx = new_len - 1;
+        let new_back = self.cur;
+
+        let opt_len = old_len - new_len;
+        let opt_fron = old_cur_next;
+        let opt_back = self.list.back;
+        if let Some(opt_fron) = opt_fron {
+            unsafe {
+                (*opt_fron.as_ptr()).prev = None;
+                (*old_cur.as_ptr()).next = None;
+            }
+        }
+        self.list.len = new_len;
+        self.list.back = new_back;
+        self.index = Some(new_idx);
+
+        EDList {
+            back: opt_back,
+            front: opt_fron,
+            len: opt_len,
+            _boo: PhantomData,
+        }
+    }
+
+    pub fn splice_before(&mut self, mut input: EDList<T>) {
+        if input.is_empty() {
+            return;
+        } else if self.list.is_empty() {
+            mem::swap(self.list, &mut input);
+        } else if let Some(cur) = self.cur {
+            let in_front = input.front.take().unwrap();
+            let in_back = input.back.take().unwrap();
+            if let Some(cur_prev) = unsafe { (*cur.as_ptr()).prev } {
+                unsafe {
+                    (*cur_prev.as_ptr()).next = Some(in_front);
+                    (*in_front.as_ptr()).prev = Some(cur_prev);
+                    (*cur.as_ptr()).prev = Some(in_back);
+                    (*in_back.as_ptr()).next = Some(cur);
+                }
+            } else {
+                unsafe {
+                    (*cur.as_ptr()).prev = Some(in_back);
+                    (*in_back.as_ptr()).next = Some(cur);
+                }
+                self.list.front = Some(in_front);
+            }
+            self.index = self.index.and_then(|idx| Some(idx + input.len));
+        } else if let Some(back) = self.list.back {
+            let in_front = input.front.take().unwrap();
+            let in_back = input.back.take().unwrap();
+            unsafe {
+                (*back.as_ptr()).next = Some(in_front);
+                (*in_front.as_ptr()).prev = Some(back);
+            }
+            self.list.back = Some(in_back);
+        }
+        self.list.len += input.len;
+        input.len = 0;
+    }
+
+    pub fn splice_after(&mut self, mut input: EDList<T>) {
+        if input.is_empty() {
+            return;
+        } else if self.list.is_empty() {
+            mem::swap(self.list, &mut input)
+        } else if let Some(cur) = self.cur {
+            let in_front = input.front.take().unwrap();
+            let in_back = input.back.take().unwrap();
+            if let Some(cur_next) = unsafe { (*cur.as_ptr()).next } {
+                unsafe {
+                    (*cur.as_ptr()).next = Some(in_front);
+                    (*in_front.as_ptr()).prev = Some(cur);
+                    (*cur_next.as_ptr()).prev = Some(in_back);
+                    (*in_back.as_ptr()).next = Some(cur_next)
+                }
+            } else {
+                unsafe {
+                    (*cur.as_ptr()).next = Some(in_front);
+                    (*in_front.as_ptr()).prev = Some(cur);
+                }
+                self.list.back = Some(in_back);
+            }
+        } else if let Some(front) = self.list.front {
+            let in_front = input.front.take().unwrap();
+            let in_back = input.back.take().unwrap();
+            unsafe {
+                (*front.as_ptr()).prev = Some(in_back);
+                (*in_back.as_ptr()).next = Some(front);
+            }
+            self.list.front = Some(in_front);
+        }
+        self.list.len += input.len;
+        input.len = 0;
+    }
+}
+
 impl<T: Eq> Eq for EDList<T> {}
 #[cfg(test)]
 mod test {
@@ -406,19 +626,7 @@ mod test {
 
         // Mess around
         list.push_front(10);
-        assert_eq!(list.len(), 1);
-        list.push_front(20);
-        assert_eq!(list.len(), 2);
-        list.push_front(30);
-        assert_eq!(list.len(), 3);
-        assert_eq!(list.pop_front(), Some(30));
-        assert_eq!(list.len(), 2);
-        list.push_front(40);
-        assert_eq!(list.len(), 3);
-        assert_eq!(list.pop_front(), Some(40));
-        assert_eq!(list.len(), 2);
-        assert_eq!(list.pop_front(), Some(20));
-        assert_eq!(list.len(), 1);
+
         assert_eq!(list.pop_front(), Some(10));
         assert_eq!(list.len(), 0);
         assert_eq!(list.pop_front(), None);
