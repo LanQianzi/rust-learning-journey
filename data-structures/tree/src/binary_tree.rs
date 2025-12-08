@@ -131,6 +131,11 @@ impl<T: Debug> Traverse<T> for TreeLink<T> {
 mod test {
     use super::*;
 
+    ///     5
+    ///    / \
+    ///   3   7
+    ///  / \ / \
+    /// 2  4 6  8
     #[test]
     fn case1() {
         let mut bst = BinaryTree::new();
